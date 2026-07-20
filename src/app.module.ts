@@ -1,3 +1,4 @@
+import * as pg from "pg";
 import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { SequelizeModule } from "@nestjs/sequelize";
@@ -24,6 +25,13 @@ import { User } from "./user/models/user.model";
 
         return {
           dialect: "postgres" as const,
+
+          // Sequelize otherwise reaches the driver through a dynamic
+          // `require("pg")`, which Vercel's dependency tracer cannot see — so
+          // pg is left out of the deployed bundle and the connection fails at
+          // runtime with "Please install pg package manually". Handing it over
+          // explicitly keeps the reference static and traceable.
+          dialectModule: pg,
           ...(url
             ? { uri: url }
             : {
