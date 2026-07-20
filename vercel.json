@@ -13,4 +13,3 @@
     }
   ]
 }
-// Error: The pattern "api/index.js" defined in `functions` doesn't match any Serverless Functions inside the `api` directory.
