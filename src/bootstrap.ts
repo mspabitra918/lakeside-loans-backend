@@ -1,10 +1,10 @@
-import 'reflect-metadata';
-import { ValidationPipe } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
-import { ExpressAdapter } from '@nestjs/platform-express';
-import type { NestExpressApplication } from '@nestjs/platform-express';
-import type { Express } from 'express';
-import { AppModule } from './app.module';
+import "reflect-metadata";
+import { ValidationPipe } from "@nestjs/common";
+import { NestFactory } from "@nestjs/core";
+import { ExpressAdapter } from "@nestjs/platform-express";
+import type { NestExpressApplication } from "@nestjs/platform-express";
+import type { Express } from "express";
+import { AppModule } from "./app.module";
 
 // Shared by the long-running server (main.ts) and the Vercel serverless
 // handler (serverless.ts), so both apply the same prefix, pipes and CORS.
@@ -21,9 +21,9 @@ export async function createApp(
 
   // Needed for @Ip() to resolve the real client behind a load balancer, which
   // the TCPA consent record depends on being accurate.
-  app.set('trust proxy', 1);
+  app.set("trust proxy", 1);
 
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix("api");
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -36,12 +36,14 @@ export async function createApp(
     }),
   );
 
-  const origins = (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
-    .split(',')
+  const origins = (
+    process.env.CORS_ORIGINS ?? "https://lakeside-loans.vercel.app"
+  )
+    .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
 
-  app.enableCors({ origin: origins, methods: ['GET', 'POST'] });
+  app.enableCors({ origin: origins, methods: ["GET", "POST"] });
 
   return app;
 }
