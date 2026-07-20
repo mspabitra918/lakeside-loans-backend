@@ -12,6 +12,9 @@
     "outDir": "./dist",
     "baseUrl": "./",
     "incremental": true,
+    // Keep the build cache inside outDir so nest-cli's `deleteOutDir` clears it;
+    // at the repo root it survives the wipe and tsc emits nothing on rebuild.
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
     "skipLibCheck": true,
     "strictNullChecks": true,
     "forceConsistentCasingInFileNames": true,
