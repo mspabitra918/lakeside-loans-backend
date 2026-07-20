@@ -7,8 +7,8 @@ import express, { Express, Request, Response } from "express";
 // `emitDecoratorMetadata` reflection that NestJS DI and sequelize-typescript
 // need. `nest build` (tsc) runs first (see vercel.json buildCommand) and bakes
 // that metadata into dist/**, so importing the compiled output keeps DI working.
-import { AppModule } from "../dist/src/app.module";
-import { configureApp } from "../dist/src/setup";
+import { AppModule } from "../dist/app.module";
+import { configureApp } from "../dist/setup";
 
 // Reuse one initialised Nest instance across warm invocations.
 let cachedServer: Express | null = null;
