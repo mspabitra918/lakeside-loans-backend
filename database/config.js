@@ -1,39 +1,51 @@
-require('dotenv').config();
+require("dotenv").config();
 
-/**
- * sequelize-cli configuration.
- *
- * `migrationStorageTableName` is set explicitly so the bookkeeping table has an
- * obvious name in a database that may hold other schemas.
- */
-const base = {
-  username: process.env.DB_USERNAME || 'postgres',
-  password: process.env.DB_PASSWORD || null,
-  database: process.env.DB_NAME || 'lakeside_loans',
-  host: process.env.DB_HOST || '127.0.0.1',
-  port: Number(process.env.DB_PORT || 5432),
-  dialect: 'postgres',
-  migrationStorageTableName: 'sequelize_migrations',
-  seederStorage: 'sequelize',
-  seederStorageTableName: 'sequelize_seeds',
-};
-
-/** Managed Postgres almost always terminates TLS, so require it off-localhost. */
 const ssl =
-  process.env.DB_SSL === 'true'
-    ? { ssl: { require: true, rejectUnauthorized: false } }
+  process.env.DB_SSL === "true"
+    ? {
+        ssl: {
+          require: true,
+          rejectUnauthorized: false,
+        },
+      }
     : {};
 
 module.exports = {
-  development: { ...base, logging: console.log },
-  test: {
-    ...base,
-    database: process.env.DB_NAME_TEST || `${base.database}_test`,
-    logging: false,
+  development: {
+    username: process.env.DB_USERNAME || "postgres",
+    password: process.env.DB_PASSWORD || null,
+    database: process.env.DB_NAME || "lakeside_loans",
+    host: process.env.DB_HOST || "127.0.0.1",
+    port: Number(process.env.DB_PORT || 5432),
+    dialect: "postgres",
+    logging: console.log,
+    migrationStorageTableName: "sequelize_migrations",
+    seederStorage: "sequelize",
+    seederStorageTableName: "sequelize_seeds",
   },
-  production: {
-    ...base,
+
+  test: {
+    username: process.env.DB_USERNAME || "postgres",
+    password: process.env.DB_PASSWORD || null,
+    database:
+      process.env.DB_NAME_TEST ||
+      `${process.env.DB_NAME || "lakeside_loans"}_test`,
+    host: process.env.DB_HOST || "127.0.0.1",
+    port: Number(process.env.DB_PORT || 5432),
+    dialect: "postgres",
     logging: false,
-    dialectOptions: { ...ssl.ssl ? { ssl: ssl.ssl } : {} },
+    migrationStorageTableName: "sequelize_migrations",
+    seederStorage: "sequelize",
+    seederStorageTableName: "sequelize_seeds",
+  },
+
+  production: {
+    use_env_variable: "DATABASE_URL",
+    dialect: "postgres",
+    logging: false,
+    dialectOptions: ssl,
+    migrationStorageTableName: "sequelize_migrations",
+    seederStorage: "sequelize",
+    seederStorageTableName: "sequelize_seeds",
   },
 };
