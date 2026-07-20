@@ -15,30 +15,48 @@ import { User } from "./user/models/user.model";
 
     SequelizeModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        dialect: "postgres" as const,
-        host: config.get<string>("DB_HOST", "127.0.0.1"),
-        port: Number(config.get<string>("DB_PORT", "5432")),
-        username: config.get<string>("DB_USERNAME", "postgres"),
-        password: config.get<string>("DB_PASSWORD") || undefined,
-        database: config.get<string>("DB_NAME", "lakeside_loans"),
-        // autoLoadModels is off, so every model a feature module pulls in with
-        // forFeature must be registered on the connection here too.
-        models: [LoanApplication, User],
+      useFactory: (config: ConfigService) => {
+        // Managed Postgres (and the migrations in database/config.js) supply a
+        // single DATABASE_URL. Prefer it when set, since on a host like Vercel
+        // the discrete DB_* vars are absent and the defaults below would
+        // silently dial 127.0.0.1.
+        const url = config.get<string>("DATABASE_URL");
 
-        // Schema is owned by the migrations in `database/migrations`. Letting
-        // Sequelize sync would let the running app silently diverge from the
-        // migration history and mutate columns holding real applicant data.
-        synchronize: false,
-        autoLoadModels: false,
+        return {
+          dialect: "postgres" as const,
+          ...(url
+            ? { uri: url }
+            : {
+                host: config.get<string>("DB_HOST", "127.0.0.1"),
+                port: Number(config.get<string>("DB_PORT", "5432")),
+                username: config.get<string>("DB_USERNAME", "postgres"),
+                password: config.get<string>("DB_PASSWORD") || undefined,
+                database: config.get<string>("DB_NAME", "lakeside_loans"),
+              }),
+          // autoLoadModels is off, so every model a feature module pulls in
+          // with forFeature must be registered on the connection here too.
+          models: [LoanApplication, User],
 
-        logging: config.get("NODE_ENV") === "production" ? false : console.log,
+          // Schema is owned by the migrations in `database/migrations`. Letting
+          // Sequelize sync would let the running app silently diverge from the
+          // migration history and mutate columns holding real applicant data.
+          synchronize: false,
+          autoLoadModels: false,
 
-        dialectOptions:
-          config.get<string>("DB_SSL") === "true"
-            ? { ssl: { require: true, rejectUnauthorized: false } }
-            : {},
-      }),
+          logging:
+            config.get("NODE_ENV") === "production" ? false : console.log,
+
+          // Each serverless invocation may land on a cold container, so keep
+          // the pool small and let idle connections go rather than exhausting
+          // the database's connection limit across many warm containers.
+          pool: { max: 2, min: 0, idle: 10_000, acquire: 30_000 },
+
+          dialectOptions:
+            config.get<string>("DB_SSL") === "true"
+              ? { ssl: { require: true, rejectUnauthorized: false } }
+              : {},
+        };
+      },
     }),
 
     LoanApplicationsModule,
