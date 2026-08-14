@@ -8,9 +8,18 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   configureApp(app);
 
+  // Handle root path directly
+  app.use("/", (req: any, res: any, next: () => void) => {
+    if (req.path === "/") {
+      return res.send("ZippyCash backend is connected");
+    }
+    next();
+  });
+
   const port = process.env.PORT ?? 4000;
   await app.listen(port);
 
+  console.log(`ZippyCash backend listening on port: ${port}`);
   console.log(`Swagger running at: http://localhost:${port}/api-docs`);
 }
 
