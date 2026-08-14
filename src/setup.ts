@@ -19,7 +19,7 @@ export function configureApp(app: INestApplication): void {
   // Allow the Next.js frontend to call the API from the browser.
   // In production, set FRONTEND_URL to the deployed frontend origin.
   app.enableCors({
-    origin: process.env.CORS_ORIGINS ?? "https://lakeside-loans.vercel.app",
+    origin: process.env.CORS_ORIGINS ?? "https://zippycash.online",
     credentials: true,
   });
 }
