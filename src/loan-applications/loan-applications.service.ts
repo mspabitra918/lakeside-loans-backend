@@ -3,6 +3,8 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from "@nestjs/common";
+import { fromZonedTime } from "date-fns-tz";
+
 import { InjectModel } from "@nestjs/sequelize";
 import { randomInt } from "node:crypto";
 import { CreateLoanApplicationDto } from "./dto/create-loan-application.dto";
@@ -13,6 +15,8 @@ import { EncryptionService } from "src/common/decorators/crypto/encryption.servi
 
 /** Ambiguous glyphs (I, O, 0, 1) omitted so references survive being read aloud. */
 const REFERENCE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+const ADMIN_TIMEZONE = "America/Los_Angeles";
 
 export type SubmissionContext = {
   ipAddress?: string | null;
@@ -144,19 +148,37 @@ export class LoanApplicationsService {
     try {
       const where: any = {};
 
+      // if (filters?.date) {
+      //   // tzOffset is minutes returned by JS Date.getTimezoneOffset() on the
+      //   // client (UTC - local, e.g. 420 for PDT). Shift the UTC boundaries so
+      //   // the range covers the user's local calendar day.
+      //   const offsetMs = (filters.tzOffset ?? 0) * 60 * 1000;
+      //   const start = new Date(
+      //     new Date(`${filters.date}T00:00:00.000Z`).getTime() + offsetMs,
+      //   );
+      //   const end = new Date(
+      //     new Date(`${filters.date}T23:59:59.999Z`).getTime() + offsetMs,
+      //   );
+      //   if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+      //     where.created_at = { [Op.between]: [start, end] };
+      //   }
+      // }
+
       if (filters?.date) {
-        // tzOffset is minutes returned by JS Date.getTimezoneOffset() on the
-        // client (UTC - local, e.g. 420 for PDT). Shift the UTC boundaries so
-        // the range covers the user's local calendar day.
-        const offsetMs = (filters.tzOffset ?? 0) * 60 * 1000;
-        const start = new Date(
-          new Date(`${filters.date}T00:00:00.000Z`).getTime() + offsetMs,
+        const start = fromZonedTime(
+          `${filters.date}T00:00:00.000`,
+          ADMIN_TIMEZONE,
         );
-        const end = new Date(
-          new Date(`${filters.date}T23:59:59.999Z`).getTime() + offsetMs,
+
+        const end = fromZonedTime(
+          `${filters.date}T23:59:59.999`,
+          ADMIN_TIMEZONE,
         );
+
         if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-          where.created_at = { [Op.between]: [start, end] };
+          where.created_at = {
+            [Op.between]: [start, end],
+          };
         }
       }
 
