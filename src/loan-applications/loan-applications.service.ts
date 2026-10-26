@@ -141,29 +141,14 @@ export class LoanApplicationsService {
   async getAll(filters?: {
     date?: string;
     q?: string;
-    tzOffset?: number;
     page?: number;
     limit?: number;
   }) {
     try {
       const where: any = {};
 
-      // if (filters?.date) {
-      //   // tzOffset is minutes returned by JS Date.getTimezoneOffset() on the
-      //   // client (UTC - local, e.g. 420 for PDT). Shift the UTC boundaries so
-      //   // the range covers the user's local calendar day.
-      //   const offsetMs = (filters.tzOffset ?? 0) * 60 * 1000;
-      //   const start = new Date(
-      //     new Date(`${filters.date}T00:00:00.000Z`).getTime() + offsetMs,
-      //   );
-      //   const end = new Date(
-      //     new Date(`${filters.date}T23:59:59.999Z`).getTime() + offsetMs,
-      //   );
-      //   if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-      //     where.created_at = { [Op.between]: [start, end] };
-      //   }
-      // }
-
+      // `date` is a Pacific-time calendar day, matching how timestamps are
+      // shown in the admin UI, so the result never depends on the browser zone.
       if (filters?.date) {
         const start = fromZonedTime(
           `${filters.date}T00:00:00.000`,

@@ -75,15 +75,12 @@ export class LoanApplicationsController {
   async getAllApplications(
     @Query("date") date?: string,
     @Query("q") q?: string,
-    @Query("tzOffset") tzOffset?: string,
     @Query("page") page?: string,
     @Query("limit") limit?: string,
   ) {
-    const parsedTz = tzOffset !== undefined ? Number(tzOffset) : undefined;
     return this.service.getAll({
       date,
       q,
-      tzOffset: Number.isFinite(parsedTz) ? parsedTz : undefined,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
