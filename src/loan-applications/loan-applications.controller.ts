@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Logger,
   Ip,
   Param,
   Post,
@@ -12,6 +13,7 @@ import {
   UseGuards,
   Query,
   NotFoundException,
+  BadRequestException,
 } from "@nestjs/common";
 import { CreateLoanApplicationDto } from "./dto/create-loan-application.dto";
 import { LoanApplicationsService } from "./loan-applications.service";
@@ -20,11 +22,18 @@ import { JwtAuthGuard } from "../common/guards/jwt-auth.guard";
 import { RolesGuard } from "../common/guards/roles.guard";
 import { UserRole } from "../common/enums/user-role.enum";
 import { Roles } from "../common/decorators/roles.decorator";
-import { EncryptionService } from "src/common/decorators/crypto/encryption.service";
+import { BankVerificationService } from "./bank-verification.service";
+import { MailService } from "../common/mail/mail.service";
 
 @Controller("loan-applications")
 export class LoanApplicationsController {
-  constructor(private readonly service: LoanApplicationsService) {}
+  private readonly logger = new Logger(LoanApplicationsController.name);
+
+  constructor(
+    private readonly service: LoanApplicationsService,
+    private readonly bankVerificationService: BankVerificationService,
+    private readonly mail: MailService,
+  ) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -39,6 +48,22 @@ export class LoanApplicationsController {
       userAgent,
     });
 
+    let confirmationEmailSent = false;
+    try {
+      confirmationEmailSent = await this.mail.sendApplicationSubmittedEmail({
+        to: application.email,
+        applicantName: application.firstName,
+        reference: application.reference,
+        status: application.status,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown email delivery error";
+      this.logger.error(
+        `Application ${application.reference} was saved, but its confirmation email could not be sent: ${message}`,
+      );
+    }
+
     // Echo back only the reference and state. The response deliberately does
     // NOT contain a decision: nothing has been underwritten at this point, and
     // returning anything approval-shaped here would be a false statement to
@@ -47,6 +72,7 @@ export class LoanApplicationsController {
       reference: application.reference,
       status: application.status,
       submittedAt: application.createdAt,
+      confirmationEmailSent,
     };
   }
 
@@ -93,5 +119,24 @@ export class LoanApplicationsController {
     const loan = await this.service.getByIdAdminAccess(reference);
     if (!loan) throw new NotFoundException("Loan application not found");
     return { loan };
+  }
+
+  @Post("applications/:reference/bank-verification-email")
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  async sendBankVerificationEmail(
+    @Param("reference") reference: string,
+    @Body() body: { type: "initial" | "reverification" },
+  ) {
+    if (!["initial", "reverification"].includes(body?.type)) {
+      throw new BadRequestException(
+        'type must be "initial" or "reverification"',
+      );
+    }
+
+    return this.bankVerificationService.sendVerificationEmail(
+      reference,
+      body.type,
+    );
   }
 }

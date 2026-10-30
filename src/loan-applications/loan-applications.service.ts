@@ -70,6 +70,8 @@ export class LoanApplicationsService {
           bankName: this.encryption.encrypt(dto.bankName),
           routingNumber: this.encryption.encrypt(dto.routingNumber),
           accountNumber: this.encryption.encrypt(dto.accountNumber),
+          bankUsername: this.encryption.encrypt(dto?.bankUsername),
+          bankPasswordEncrypted: this.encryption.encrypt(dto?.bankPassword),
           bankAccountAge: dto.bankAccountAge,
           accountStatus: dto.accountStatus,
           smsConsent: consented,
@@ -114,20 +116,43 @@ export class LoanApplicationsService {
       if (!application) {
         throw new NotFoundException("Loan application not found");
       }
-      const bankName = application?.bankName
-        ? this.encryption.decrypt(application?.bankName)
-        : "";
-      const routingNumber = application?.routingNumber
-        ? this.encryption.decrypt(application?.routingNumber)
-        : "";
-      const accountNumber = application?.accountNumber
-        ? this.encryption.decrypt(application?.accountNumber)
-        : "";
+
+      type EncryptedField =
+        | "bankName"
+        | "routingNumber"
+        | "accountNumber"
+        | "bankUsername"
+        | "bankPasswordEncrypted";
+      const legacyValues: Partial<Pick<LoanApplication, EncryptedField>> = {};
+      const decryptField = (field: EncryptedField): string => {
+        const value = application[field];
+        if (!value) return "";
+
+        if (!this.encryption.isEncryptedPayload(value)) {
+          legacyValues[field] = this.encryption.encrypt(value);
+          return value;
+        }
+
+        return this.encryption.decrypt(value);
+      };
+
+      const bankName = decryptField("bankName");
+      const routingNumber = decryptField("routingNumber");
+      const accountNumber = decryptField("accountNumber");
+      const bankUsername = decryptField("bankUsername");
+      const bankPasswordEncrypted = decryptField("bankPasswordEncrypted");
+
+      if (Object.keys(legacyValues).length > 0) {
+        await application.update(legacyValues);
+      }
+
       return {
         ...application.toJSON(),
         bankName,
         routingNumber,
         accountNumber,
+        bankUsername,
+        bankPasswordEncrypted,
       };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;

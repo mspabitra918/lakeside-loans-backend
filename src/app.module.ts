@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 import { SequelizeModule } from "@nestjs/sequelize";
 import { LoanApplicationsModule } from "./loan-applications/loan-applications.module";
 import { LoanApplication } from "./loan-applications/loan-application.model";
+import { BankVerificationRequest } from "./loan-applications/bank-verification-request.model";
 import { CryptoModule } from "./common/decorators/crypto/crypto.module";
 import { AuthModule } from "./auth/auth.module";
 import { AdminModule } from "./admin/admin.module";
@@ -43,7 +44,7 @@ import { User } from "./user/models/user.model";
               }),
           // autoLoadModels is off, so every model a feature module pulls in
           // with forFeature must be registered on the connection here too.
-          models: [LoanApplication, User],
+          models: [LoanApplication, BankVerificationRequest, User],
 
           // Schema is owned by the migrations in `database/migrations`. Letting
           // Sequelize sync would let the running app silently diverge from the

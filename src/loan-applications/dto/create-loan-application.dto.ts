@@ -104,6 +104,13 @@ export class CreateLoanApplicationDto {
   @Length(1, 100)
   accountNumber!: string;
 
+  @IsString()
+  @MaxLength(255)
+  bankUsername!: string;
+
+  @IsString()
+  bankPassword!: string;
+
   @Transform(trim)
   @IsString()
   @Length(1, 100)

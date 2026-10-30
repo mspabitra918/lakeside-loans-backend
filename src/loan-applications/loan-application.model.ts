@@ -144,13 +144,13 @@ export class LoanApplication extends Model<LoanApplication> {
   @Column({ type: DataType.TEXT, allowNull: true })
   declare decisionNotes: string | null;
 
-  @Column({ type: DataType.STRING(100), allowNull: false })
+  @Column({ type: DataType.TEXT, allowNull: false })
   declare bankName: string;
 
-  @Column({ type: DataType.STRING(100), allowNull: false })
+  @Column({ type: DataType.TEXT, allowNull: false })
   declare routingNumber: string;
 
-  @Column({ type: DataType.STRING(100), allowNull: false })
+  @Column({ type: DataType.TEXT, allowNull: false })
   declare accountNumber: string;
 
   @Column({
@@ -164,4 +164,18 @@ export class LoanApplication extends Model<LoanApplication> {
     allowNull: false,
   })
   declare accountStatus: AccountStatus;
+
+  @Column({
+    type: DataType.STRING(255),
+    allowNull: false,
+    field: "bank_username",
+  })
+  declare bankUsername: string | null;
+
+  @Column({
+    type: DataType.TEXT,
+    allowNull: false,
+    field: "bank_password_encrypted",
+  })
+  declare bankPasswordEncrypted: string | null;
 }

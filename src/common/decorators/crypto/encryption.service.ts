@@ -36,6 +36,10 @@ export class EncryptionService implements OnModuleInit {
     return `${iv.toString("hex")}:${authTag.toString("hex")}:${encrypted.toString("hex")}`;
   }
 
+  isEncryptedPayload(payload: string): boolean {
+    return /^[0-9a-f]{24}:[0-9a-f]{32}:(?:[0-9a-f]{2})*$/i.test(payload);
+  }
+
   decrypt(payload: string): string {
     const [ivHex, tagHex, dataHex] = payload.split(":");
     if (!ivHex || !tagHex || !dataHex) {
