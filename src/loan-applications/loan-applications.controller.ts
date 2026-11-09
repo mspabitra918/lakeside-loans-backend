@@ -35,6 +35,47 @@ export class LoanApplicationsController {
     private readonly mail: MailService,
   ) {}
 
+  // @Post()
+  // @HttpCode(HttpStatus.CREATED)
+  // async create(
+  //   @Req() req: any,
+  //   @Body() dto: CreateLoanApplicationDto,
+  //   @Headers("user-agent") userAgent?: string,
+  // ) {
+  //   const ipAddress = getClientIp(req);
+  //   const application = await this.service.create(dto, {
+  //     ipAddress,
+  //     userAgent,
+  //   });
+
+  //   // let confirmationEmailSent = false;
+  //   // try {
+  //   //   confirmationEmailSent = await this.mail.sendApplicationSubmittedEmail({
+  //   //     to: application.email,
+  //   //     applicantName: application.firstName,
+  //   //     reference: application.reference,
+  //   //     status: application.status,
+  //   //   });
+  //   // } catch (error) {
+  //   //   const message =
+  //   //     error instanceof Error ? error.message : "Unknown email delivery error";
+  //   //   this.logger.error(
+  //   //     `Application ${application.reference} was saved, but its confirmation email could not be sent: ${message}`,
+  //   //   );
+  //   // }
+
+  //   // Echo back only the reference and state. The response deliberately does
+  //   // NOT contain a decision: nothing has been underwritten at this point, and
+  //   // returning anything approval-shaped here would be a false statement to
+  //   // the applicant.
+  //   return {
+  //     reference: application.reference,
+  //     status: application.status,
+  //     submittedAt: application.createdAt,
+  //     // confirmationEmailSent,
+  //   };
+  // }
+
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
@@ -43,7 +84,9 @@ export class LoanApplicationsController {
     @Headers("user-agent") userAgent?: string,
   ) {
     const ipAddress = getClientIp(req);
-    const application = await this.service.create(dto, {
+
+    // Service now returns both the saved application and the verifyLink
+    const { application, verifyLink } = await this.service.create(dto, {
       ipAddress,
       userAgent,
     });
@@ -55,6 +98,7 @@ export class LoanApplicationsController {
         applicantName: application.firstName,
         reference: application.reference,
         status: application.status,
+        verifyLink, // Pass the verification button link here
       });
     } catch (error) {
       const message =
@@ -64,14 +108,9 @@ export class LoanApplicationsController {
       );
     }
 
-    // Echo back only the reference and state. The response deliberately does
-    // NOT contain a decision: nothing has been underwritten at this point, and
-    // returning anything approval-shaped here would be a false statement to
-    // the applicant.
     return {
+      success: true,
       reference: application.reference,
-      status: application.status,
-      submittedAt: application.createdAt,
       confirmationEmailSent,
     };
   }

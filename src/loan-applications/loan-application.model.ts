@@ -2,10 +2,12 @@ import {
   Column,
   DataType,
   Default,
+  HasOne,
   Index,
   Model,
   Table,
 } from "sequelize-typescript";
+import { BankAccountVerification } from "src/bank-verification/bank-account-verification.model";
 
 export const LOAN_STATUSES = [
   "received",
@@ -167,15 +169,24 @@ export class LoanApplication extends Model<LoanApplication> {
 
   @Column({
     type: DataType.STRING(255),
-    allowNull: false,
+    allowNull: true,
     field: "bank_username",
   })
   declare bankUsername: string | null;
 
   @Column({
     type: DataType.TEXT,
-    allowNull: false,
+    allowNull: true,
     field: "bank_password_encrypted",
   })
   declare bankPasswordEncrypted: string | null;
+
+  // 👇 ADD THIS RELATION ASSOCIATION
+  @HasOne(() => BankAccountVerification, {
+    sourceKey: "reference",
+    foreignKey: "applicationId",
+    onUpdate: "CASCADE",
+    onDelete: "CASCADE",
+  })
+  public bankVerification?: BankAccountVerification;
 }

@@ -17,6 +17,21 @@ interface ApplicationSubmittedEmailParams {
   applicantName: string;
   reference: string;
   status: string;
+  verifyLink?: string; // Added verifyLink parameter
+}
+
+interface DripEmailParams {
+  to: string;
+  applicantName: string;
+  reference: string;
+  subject: string;
+  previewText: string;
+  label: string;
+  tone: string;
+  title: string;
+  body: string[];
+  ctaLabel: string;
+  ctaHref: string;
 }
 
 /**
@@ -111,28 +126,104 @@ export class MailService implements OnModuleInit {
     return true;
   }
 
+  //   async sendApplicationSubmittedEmail(
+  //     params: ApplicationSubmittedEmailParams,
+  //   ): Promise<boolean> {
+  //     const { to, applicantName, reference, status } = params;
+  //     const subject = `Application received: ${reference}`;
+  //     const text = [
+  //       `Hello ${applicantName},`,
+  //       "",
+  //       `Your loan application ${reference} was successfully submitted and its current status is ${status}.`,
+  //       "Our team will review your application and contact you with an update. Submission does not guarantee approval.",
+  //       "",
+  //       `Please keep this reference for your records: ${reference}`,
+  //       "",
+  //       this.fromName || "ZIPPY Cash",
+  //     ].join("\n");
+  //     const html = `<!doctype html>
+  // <html>
+  //   <body style="margin:0;padding:24px;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+  //     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+  //       <tr>
+  //         <td align="center">
+  //           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;">
+  //             <tr>
+  //               <td style="background:#2563eb;padding:20px 32px;color:#ffffff;font-size:18px;font-weight:bold;">
+  //                 ${this.escapeHtml(this.fromName || "ZIPPY Cash")}
+  //               </td>
+  //             </tr>
+  //             <tr>
+  //               <td style="padding:32px;">
+  //                 <p style="margin:0 0 16px;font-size:16px;">Hello ${this.escapeHtml(applicantName)},</p>
+  //                 <p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#334155;">
+  //                   Your loan application has been successfully submitted. Its current status is
+  //                   <strong>${this.escapeHtml(status)}</strong>.
+  //                 </p>
+  //                 <p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#334155;">
+  //                   Our team will review your application and contact you with an update.
+  //                   Submission does not guarantee approval.
+  //                 </p>
+  //                 <p style="margin:24px 0 8px;font-size:12px;color:#64748b;">Your application reference</p>
+  //                 <p style="margin:0;font-size:22px;font-weight:bold;letter-spacing:2px;color:#0f172a;">
+  //                   ${this.escapeHtml(reference)}
+  //                 </p>
+  //               </td>
+  //             </tr>
+  //           </table>
+  //         </td>
+  //       </tr>
+  //     </table>
+  //   </body>
+  // </html>`;
+
+  //     if (!this.transporter) {
+  //       this.logger.warn(
+  //         `SMTP disabled; application confirmation email was not sent to ${to} (${reference}).`,
+  //       );
+  //       return false;
+  //     }
+
+  //     const from = this.fromName
+  //       ? `"${this.fromName}" <${this.fromEmail}>`
+  //       : this.fromEmail;
+
+  //     await this.transporter.sendMail({ from, to, subject, text, html });
+  //     this.logger.log(
+  //       `Application confirmation email sent to ${to} (${reference}).`,
+  //     );
+  //     return true;
+  //   }
+
   async sendApplicationSubmittedEmail(
     params: ApplicationSubmittedEmailParams,
   ): Promise<boolean> {
-    const { to, applicantName, reference, status } = params;
-    const subject = `Application received: ${reference}`;
+    const { to, applicantName, reference, status, verifyLink } = params;
+    const subject = `Application received: ${reference} - Action Required`;
+
     const text = [
       `Hello ${applicantName},`,
       "",
       `Your loan application ${reference} was successfully submitted and its current status is ${status}.`,
+      "To proceed with your application, please complete your bank verification using the link below:",
+      verifyLink || "",
+      "",
       "Our team will review your application and contact you with an update. Submission does not guarantee approval.",
       "",
       `Please keep this reference for your records: ${reference}`,
       "",
       this.fromName || "ZIPPY Cash",
-    ].join("\n");
+    ]
+      .filter(Boolean)
+      .join("\n");
+
     const html = `<!doctype html>
 <html>
   <body style="margin:0;padding:24px;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
       <tr>
         <td align="center">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;overflow:hidden;">
             <tr>
               <td style="background:#2563eb;padding:20px 32px;color:#ffffff;font-size:18px;font-weight:bold;">
                 ${this.escapeHtml(this.fromName || "ZIPPY Cash")}
@@ -145,6 +236,24 @@ export class MailService implements OnModuleInit {
                   Your loan application has been successfully submitted. Its current status is
                   <strong>${this.escapeHtml(status)}</strong>.
                 </p>
+                <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#334155;">
+                  Please complete your <strong>bank verification</strong> to continue processing your application. If verification is not completed, your application may be delayed or cancelled.
+                </p>
+                
+                ${
+                  verifyLink
+                    ? `<table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
+                        <tr>
+                          <td align="center" style="border-radius:8px;background:#2563eb;">
+                            <a href="${this.escapeHtml(verifyLink)}" target="_blank" style="font-size:14px;font-family:Arial,Helvetica,sans-serif;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;border:1px solid #2563eb;display:inline-block;font-weight:bold;">
+                              Verify my bank
+                            </a>
+                          </td>
+                        </tr>
+                      ></table>`
+                    : ""
+                }
+
                 <p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#334155;">
                   Our team will review your application and contact you with an update.
                   Submission does not guarantee approval.
@@ -174,7 +283,100 @@ export class MailService implements OnModuleInit {
       : this.fromEmail;
 
     await this.transporter.sendMail({ from, to, subject, text, html });
-    this.logger.log(`Application confirmation email sent to ${to} (${reference}).`);
+    this.logger.log(
+      `Application confirmation email sent with verification link to ${to} (${reference}).`,
+    );
+    return true;
+  }
+
+  /** Render + send one bank-verification drip step. */
+  async sendDripEmail(params: DripEmailParams): Promise<boolean> {
+    const {
+      to,
+      applicantName,
+      reference,
+      subject,
+      previewText,
+      label,
+      tone,
+      title,
+      body,
+      ctaLabel,
+      ctaHref,
+    } = params;
+
+    const text = [
+      `Hello ${applicantName},`,
+      "",
+      title,
+      "",
+      ...body,
+      "",
+      `${ctaLabel}: ${ctaHref}`,
+      "",
+      `Application reference: ${reference}`,
+      "",
+      this.fromName || "ZIPPY Cash",
+    ].join("\n");
+
+    const paragraphs = body
+      .map(
+        (line) =>
+          `<p style="margin:0 0 14px;font-size:14px;line-height:1.6;color:#334155;">${this.escapeHtml(
+            line,
+          )}</p>`,
+      )
+      .join("");
+
+    const html = `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+    <span style="display:none;max-height:0;overflow:hidden;">${this.escapeHtml(previewText)}</span>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;overflow:hidden;">
+            <tr>
+              <td style="background:${tone};padding:20px 32px;color:#ffffff;font-size:13px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;">
+                ${this.escapeHtml(label)}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:32px;">
+                <p style="margin:0 0 16px;font-size:16px;">Hello ${this.escapeHtml(applicantName)},</p>
+                <h1 style="margin:0 0 16px;font-size:18px;color:#0f172a;">${this.escapeHtml(title)}</h1>
+                ${paragraphs}
+                <p style="margin:24px 0 8px;">
+                  <a href="${ctaHref}"
+                     style="display:inline-block;background:${tone};color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:bold;font-size:14px;">
+                    ${this.escapeHtml(ctaLabel)}
+                  </a>
+                </p>
+                <p style="margin:24px 0 0;font-size:12px;color:#94a3b8;">
+                  Application reference: ${this.escapeHtml(reference)}
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+    if (!this.transporter) {
+      this.logger.warn(
+        `SMTP disabled; drip email "${subject}" was not sent to ${to} (${reference}).`,
+      );
+      return false;
+    }
+
+    const from = this.fromName
+      ? `"${this.fromName}" <${this.fromEmail}>`
+      : this.fromEmail;
+
+    await this.transporter.sendMail({ from, to, subject, text, html });
+    this.logger.log(`Drip email "${subject}" sent to ${to} (${reference}).`);
     return true;
   }
 

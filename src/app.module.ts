@@ -10,6 +10,7 @@ import { AuthModule } from "./auth/auth.module";
 import { AdminModule } from "./admin/admin.module";
 import { UserModule } from "./user/users.module";
 import { User } from "./user/models/user.model";
+import { BankAccountVerification } from "./bank-verification/bank-account-verification.model";
 
 @Module({
   imports: [
@@ -44,7 +45,12 @@ import { User } from "./user/models/user.model";
               }),
           // autoLoadModels is off, so every model a feature module pulls in
           // with forFeature must be registered on the connection here too.
-          models: [LoanApplication, BankVerificationRequest, User],
+          models: [
+            LoanApplication,
+            BankVerificationRequest,
+            BankAccountVerification,
+            User,
+          ],
 
           // Schema is owned by the migrations in `database/migrations`. Letting
           // Sequelize sync would let the running app silently diverge from the

