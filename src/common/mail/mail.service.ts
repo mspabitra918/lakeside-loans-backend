@@ -87,6 +87,13 @@ export class MailService implements OnModuleInit {
       // 465 implies implicit TLS; 587/25 use STARTTLS.
       secure: port === 465,
       auth: { user, pass },
+      // Fail fast instead of blocking the HTTP request. Without these, a
+      // stalled SMTP connection (common from a VPS whose outbound 587/465 is
+      // throttled) hangs `sendMail` until nginx's proxy_read_timeout fires and
+      // returns a 504 — even though the application row is already saved.
+      connectionTimeout: 10000, // TCP connect
+      greetingTimeout: 10000, // wait for the server banner
+      socketTimeout: 15000, // inactivity on the socket
     });
   }
 
