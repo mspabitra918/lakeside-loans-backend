@@ -37,6 +37,22 @@ const BULLMQ_CONNECTION_OPTIONS = {
  * (the NOAUTH/HELLO error).
  */
 function redisConnection() {
+  const conn = buildRedisConnection();
+  // One-time startup diagnostic. Confirms, without leaking the secret, which
+  // source was used and whether a password actually made it into the config —
+  // the fastest way to tell a "no password → NOAUTH" bug from a wrong password.
+  // eslint-disable-next-line no-console
+  console.log(
+    `[redisConnection] host=${conn.host} port=${conn.port} db=${
+      (conn as { db?: number }).db ?? 0
+    } tls=${(conn as { tls?: unknown }).tls ? "yes" : "no"} password=${
+      conn.password ? `set(len:${conn.password.length})` : "MISSING"
+    } source=${process.env.REDIS_URL ? "REDIS_URL" : "REDIS_* vars"}`,
+  );
+  return conn;
+}
+
+function buildRedisConnection() {
   const url = process.env.REDIS_URL;
   if (url) {
     const u = new URL(url);
