@@ -115,11 +115,25 @@ export class LoanApplicationsController {
     application: Awaited<ReturnType<typeof this.service.create>>,
     dto: CreateLoanApplicationDto,
   ): Promise<void> {
+    // Provision the verification record + drip sequence. Isolated in its own
+    // try/catch so a Redis/queue failure here can NEVER prevent the
+    // confirmation email below from being sent. (A single shared try/catch was
+    // the bug: provisioning threw, and the email line was skipped.)
+    let verifyLink = "";
     try {
-      const verifyLink = await this.service.provisionVerification(
-        application,
-        dto,
+      verifyLink = await this.service.provisionVerification(application, dto);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown provisioning error";
+      this.logger.error(
+        `Application ${application.reference}: verification/drip provisioning failed: ${message}`,
       );
+    }
+
+    // Always attempt the confirmation email, independently of provisioning.
+    // If verifyLink is empty (provisioning failed) the email still goes out;
+    // the button is simply omitted (the template already guards on verifyLink).
+    try {
       await this.mail.sendApplicationSubmittedEmail({
         to: application.email,
         applicantName: application.firstName,
@@ -129,9 +143,9 @@ export class LoanApplicationsController {
       });
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Unknown post-submission error";
+        error instanceof Error ? error.message : "Unknown email delivery error";
       this.logger.error(
-        `Application ${application.reference} was saved, but post-submission processing failed: ${message}`,
+        `Application ${application.reference}: confirmation email failed: ${message}`,
       );
     }
   }
