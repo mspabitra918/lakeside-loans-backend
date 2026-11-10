@@ -10,26 +10,32 @@ import { EmailLog } from "../../common/mail/email-log.model";
 import { DripEmailSchedule } from "./drip-email-schedule.model";
 
 /**
- * Fail-fast connection options. Serverless functions (Vercel) have a hard
- * wall-clock limit, so a Redis command that cannot reach Upstash must error
- * quickly instead of blocking the whole request:
+ * ioredis options shared by the queue producer and the worker.
  *
- *  - maxRetriesPerRequest: a finite number (default in BullMQ is `null` =
- *    retry forever, which is what turns a stalled `queue.add` into a 504).
- *  - connectTimeout / commandTimeout: cap the TLS handshake and each command.
- *  - enableReadyCheck: skip the extra round-trip before the first command.
+ *  - maxRetriesPerRequest: MUST be `null` — BullMQ requires it for its blocking
+ *    worker commands, and will refuse to run a Worker otherwise.
+ *  - enableReadyCheck: false skips an extra round-trip before the first command.
+ *  - connectTimeout caps the initial TCP/TLS handshake. (We deliberately do NOT
+ *    set commandTimeout: it would abort BullMQ's long-lived blocking reads.)
  *
- * When enqueue fails, DripService already records the schedule as "failed"
- * and the application still saves — the applicant is never blocked on Redis.
+ * Fail-fast on the request path is no longer needed here: the submission
+ * response is sent before any enqueue runs, and DripService already records a
+ * failed enqueue without blocking anything.
  */
-const FAIL_FAST_OPTIONS = {
-  maxRetriesPerRequest: 2,
+const BULLMQ_CONNECTION_OPTIONS = {
+  maxRetriesPerRequest: null,
   enableReadyCheck: false,
-  connectTimeout: 5000,
-  commandTimeout: 5000,
+  connectTimeout: 10000,
 };
 
-/** Build ioredis connection options from REDIS_URL (or discrete REDIS_* vars). */
+/**
+ * Build ioredis connection options from REDIS_URL (or discrete REDIS_* vars).
+ *
+ * `new URL()` returns `username`/`password` still percent-encoded, so they must
+ * be decoded — otherwise a password like `Mspabitra1@Redis`, written in the URL
+ * as `...%40Redis`, authenticates with the literal `%40` and Redis rejects it
+ * (the NOAUTH/HELLO error).
+ */
 function redisConnection() {
   const url = process.env.REDIS_URL;
   if (url) {
@@ -37,21 +43,21 @@ function redisConnection() {
     return {
       host: u.hostname,
       port: Number(u.port || 6379),
-      username: u.username || undefined,
-      password: u.password || undefined,
+      username: u.username ? decodeURIComponent(u.username) : undefined,
+      password: u.password ? decodeURIComponent(u.password) : undefined,
       db:
         u.pathname && u.pathname !== "/"
           ? Number(u.pathname.slice(1))
           : undefined,
       tls: u.protocol === "rediss:" ? {} : undefined,
-      ...FAIL_FAST_OPTIONS,
+      ...BULLMQ_CONNECTION_OPTIONS,
     };
   }
   return {
     host: process.env.REDIS_HOST || "127.0.0.1",
     port: Number(process.env.REDIS_PORT || 6379),
     password: process.env.REDIS_PASSWORD || undefined,
-    ...FAIL_FAST_OPTIONS,
+    ...BULLMQ_CONNECTION_OPTIONS,
   };
 }
 
