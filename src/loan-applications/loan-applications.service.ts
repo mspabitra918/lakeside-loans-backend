@@ -99,7 +99,7 @@ export class LoanApplicationsService {
   async create(
     dto: CreateLoanApplicationDto,
     context: SubmissionContext = {},
-  ): Promise<{ application: LoanApplication; verifyLink: string }> {
+  ): Promise<LoanApplication> {
     const consented = dto.smsConsent === true;
     let application: LoanApplication | undefined;
 
@@ -148,7 +148,22 @@ export class LoanApplicationsService {
       throw new Error("Could not allocate a unique application reference");
     }
 
-    // 1. Initialize Bank Verification record & schedule BullMQ drip emails
+    // The application is now persisted. Everything else (verification record,
+    // drip scheduling, confirmation email) is deliberately NOT done here — the
+    // caller runs it in the background so the HTTP response returns the moment
+    // the row is saved, instead of waiting on Redis/SMTP and risking a 504.
+    return application;
+  }
+
+  /**
+   * Creates the bank-verification record, schedules the drip sequence, and
+   * returns the applicant's verification link. Runs AFTER the submission has
+   * already been acknowledged, so a slow Redis enqueue never blocks the POST.
+   */
+  async provisionVerification(
+    application: LoanApplication,
+    dto: CreateLoanApplicationDto,
+  ): Promise<string> {
     const { verifyToken } =
       await this.bankVerificationService.createVerification({
         applicationId: application.reference,
@@ -161,11 +176,8 @@ export class LoanApplicationsService {
         encryptedAccountNumber: application.accountNumber,
       });
 
-    // 2. Build the full verification frontend link
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-    const verifyLink = `${frontendUrl}/bank-verification/${encodeURIComponent(verifyToken)}`;
-
-    return { application, verifyLink };
+    return `${frontendUrl}/bank-verification/${encodeURIComponent(verifyToken)}`;
   }
 
   async findByReference(reference: string): Promise<LoanApplication> {

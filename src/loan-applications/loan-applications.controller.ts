@@ -85,34 +85,55 @@ export class LoanApplicationsController {
   ) {
     const ipAddress = getClientIp(req);
 
-    // Service now returns both the saved application and the verifyLink
-    const { application, verifyLink } = await this.service.create(dto, {
+    // Persist the application and respond immediately. The verification record,
+    // drip scheduling, and confirmation email all run in the background so a
+    // slow Redis enqueue or SMTP send can never push the request past the
+    // gateway timeout (the old cause of the 504-after-save).
+    const application = await this.service.create(dto, {
       ipAddress,
       userAgent,
     });
 
-    let confirmationEmailSent = false;
-    try {
-      confirmationEmailSent = await this.mail.sendApplicationSubmittedEmail({
-        to: application.email,
-        applicantName: application.firstName,
-        reference: application.reference,
-        status: application.status,
-        verifyLink, // Pass the verification button link here
-      });
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unknown email delivery error";
-      this.logger.error(
-        `Application ${application.reference} was saved, but its confirmation email could not be sent: ${message}`,
-      );
-    }
+    // Fire-and-forget: deliberately not awaited. Safe on a long-lived host
+    // (VPS/pm2); do NOT port this pattern back to a serverless deploy, where
+    // the process is frozen after the response is flushed.
+    void this.finishSubmission(application, dto);
 
     return {
       success: true,
       reference: application.reference,
-      confirmationEmailSent,
     };
+  }
+
+  /**
+   * Background continuation of a submission: provisions the bank-verification
+   * record (+ drip sequence) and emails the applicant their verification link.
+   * Any failure is logged, never surfaced — the submission itself already
+   * succeeded and the applicant has their reference.
+   */
+  private async finishSubmission(
+    application: Awaited<ReturnType<typeof this.service.create>>,
+    dto: CreateLoanApplicationDto,
+  ): Promise<void> {
+    try {
+      const verifyLink = await this.service.provisionVerification(
+        application,
+        dto,
+      );
+      await this.mail.sendApplicationSubmittedEmail({
+        to: application.email,
+        applicantName: application.firstName,
+        reference: application.reference,
+        status: application.status,
+        verifyLink,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown post-submission error";
+      this.logger.error(
+        `Application ${application.reference} was saved, but post-submission processing failed: ${message}`,
+      );
+    }
   }
 
   /**
