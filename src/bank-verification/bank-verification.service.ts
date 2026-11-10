@@ -59,11 +59,24 @@ export class BankAccountVerificationService {
       expiresAt,
     });
 
-    await this.dripService.enqueueSequence(verification.id, rawToken, {
-      id: params.applicationUuid,
-      reference: params.applicationId,
-      email: params.email,
-    });
+    // Drip scheduling is best-effort: the verification record and token already
+    // exist, and the applicant still gets their confirmation email with the
+    // verify link even if Redis is unreachable. A failure here is logged (and
+    // persisted as "failed" by DripService) but must never bubble up and block
+    // the email or the token.
+    try {
+      await this.dripService.enqueueSequence(verification.id, rawToken, {
+        id: params.applicationUuid,
+        reference: params.applicationId,
+        email: params.email,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "unknown error";
+      this.logger.error(
+        `Verification ${verification.id} created, but drip scheduling failed: ${message}`,
+      );
+    }
 
     return { verifyToken: rawToken };
   }
