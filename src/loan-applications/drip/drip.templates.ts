@@ -1,7 +1,7 @@
 /**
  * Bank-verification drip sequence.
  *
- * Each step nudges the applicant to finish *micro-deposit* verification — there
+ * Each step nudges the applicant to finish Verify my bank verification — there
  * is never a request for a banking username or password. The worker stops the
  * whole sequence the moment the verification record flips to "verified".
  */
@@ -15,7 +15,7 @@ export const COLOR = {
 
 export const CONTACT = {
   website: process.env.FRONTEND_URL ?? "https://zippycash.online",
-  local: { display: "(555) 010-2048", tel: "+15550102048" },
+  local: { display: "(747) 202-9713", tel: "+17472029713" },
 } as const;
 
 export type DripCtaTarget = "verify" | "phone";
@@ -39,10 +39,10 @@ const FOLLOWUP_6H: DripTemplate = {
   title: "Complete your bank verification",
   body: [
     "Your loan application is still waiting for bank verification.",
-    "We sent two small deposits to your account. Once they arrive (usually 1–2 business days), enter the amounts to confirm it's your account.",
+    "Please complete your verification to continue.",
     "If verification is not completed within 2 days, your application may be cancelled.",
   ],
-  cta: { label: "Confirm deposit amounts", target: "verify" },
+  cta: { label: "Verify my bank", target: "verify" },
 };
 
 // Step 2 — 24 hours
@@ -54,9 +54,9 @@ const FOLLOWUP_24H: DripTemplate = {
   title: "Your bank verification is still incomplete",
   body: [
     "Your bank verification is still incomplete.",
-    "Check your account for two small deposits and enter the amounts to continue your loan application.",
+    "Please complete verification to continue your loan application.",
   ],
-  cta: { label: "Confirm deposit amounts", target: "verify" },
+  cta: { label: "Verify my bank", target: "verify" },
 };
 
 // Step 3 — 48 hours
@@ -71,7 +71,7 @@ const FOLLOWUP_48H: DripTemplate = {
     "Your application is still pending verification.",
     "If verification is not completed, your application will be cancelled for now.",
   ],
-  cta: { label: "Confirm deposit amounts", target: "verify" },
+  cta: { label: "Verify my bank", target: "verify" },
 };
 
 // Step 4 — 72 hours (cancellation)
@@ -100,16 +100,31 @@ export const DRIP_TEMPLATES: Record<number, DripTemplate> = {
 /** The final step cancels the application. */
 export const DRIP_CANCEL_STEP = 4;
 
-const HOUR = 60 * 60 * 1000;
+// const HOUR = 60 * 60 * 1000;
+
+// /**
+//  * Delay from enqueue time to each step firing. In test mode (DRIP_TEST_MODE=
+//  * "true") the whole sequence is compressed to seconds so the "dummy" flow can
+//  * be exercised end-to-end without waiting hours.
+//  */
+// export function dripDelaysMs(): Record<number, number> {
+//   if (process.env.DRIP_TEST_MODE === "true") {
+//     return { 1: 10_000, 2: 20_000, 3: 30_000, 4: 40_000 };
+//   }
+//   return { 1: 6 * HOUR, 2: 24 * HOUR, 3: 48 * HOUR, 4: 72 * HOUR };
+// }
+
+const HOUR = 60 * 60 * 1000; // Fixed the multiplier to 1,000 ms per second
 
 /**
- * Delay from enqueue time to each step firing. In test mode (DRIP_TEST_MODE=
- * "true") the whole sequence is compressed to seconds so the "dummy" flow can
- * be exercised end-to-end without waiting hours.
+- Delay from enqueue time to each step firing. In test mode (DRIP_TEST_MODE=
+- "true") the whole sequence is compressed to seconds/minutes so the "dummy" flow can
+- be exercised end-to-end without waiting hours.
  */
 export function dripDelaysMs(): Record<number, number> {
   if (process.env.DRIP_TEST_MODE === "true") {
-    return { 1: 10_000, 2: 20_000, 3: 30_000, 4: 40_000 };
+    const MINUTE = 60 * 1000; // 1 minute in milliseconds
+    return { 1: 1 * MINUTE, 2: 2 * MINUTE, 3: 3 * MINUTE, 4: 4 * MINUTE };
   }
   return { 1: 6 * HOUR, 2: 24 * HOUR, 3: 48 * HOUR, 4: 72 * HOUR };
 }

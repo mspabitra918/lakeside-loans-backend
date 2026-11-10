@@ -5,15 +5,16 @@ import { BankAccountVerificationController } from "./bank-verification.controlle
 import { DripModule } from "src/loan-applications/drip/drip.module";
 import { BankAccountVerification } from "./bank-account-verification.model";
 import { LoanApplication } from "src/loan-applications/loan-application.model";
-import { MailService } from "src/common/mail/mail.service";
+import { MailModule } from "src/common/mail/mail.module";
 
 @Module({
   imports: [
     SequelizeModule.forFeature([BankAccountVerification, LoanApplication]), // <-- REQUIRED for initialization
     DripModule,
+    MailModule,
   ],
-  providers: [BankAccountVerificationService, MailService],
+  providers: [BankAccountVerificationService],
   controllers: [BankAccountVerificationController],
-  exports: [BankAccountVerificationService, MailService],
+  exports: [BankAccountVerificationService],
 })
 export class BankAccountVerificationModule {}

@@ -11,6 +11,8 @@ import { AdminModule } from "./admin/admin.module";
 import { UserModule } from "./user/users.module";
 import { User } from "./user/models/user.model";
 import { BankAccountVerification } from "./bank-verification/bank-account-verification.model";
+import { EmailLog } from "./common/mail/email-log.model";
+import { DripEmailSchedule } from "./loan-applications/drip/drip-email-schedule.model";
 
 @Module({
   imports: [
@@ -49,6 +51,8 @@ import { BankAccountVerification } from "./bank-verification/bank-account-verifi
             LoanApplication,
             BankVerificationRequest,
             BankAccountVerification,
+            EmailLog,
+            DripEmailSchedule,
             User,
           ],
 

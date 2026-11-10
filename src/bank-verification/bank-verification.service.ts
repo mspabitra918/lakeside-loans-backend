@@ -16,6 +16,8 @@ import { MailService } from "src/common/mail/mail.service";
 @Injectable()
 export class BankAccountVerificationService {
   private readonly logger = new Logger(BankAccountVerificationService.name);
+  private readonly uuidPattern =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   constructor(
     @InjectModel(BankAccountVerification)
@@ -29,6 +31,7 @@ export class BankAccountVerificationService {
 
   async createVerification(params: {
     applicationId: string;
+    applicationUuid: string;
     fullName: string;
     email: string;
     phoneNumber: string;
@@ -43,7 +46,7 @@ export class BankAccountVerificationService {
       .digest("hex");
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days expiry
 
-    await this.verificationModel.create({
+    const verification = await this.verificationModel.create({
       applicationId: params.applicationId,
       fullName: params.fullName,
       email: params.email,
@@ -54,6 +57,12 @@ export class BankAccountVerificationService {
       tokenHash,
       status: "pending",
       expiresAt,
+    });
+
+    await this.dripService.enqueueSequence(verification.id, rawToken, {
+      id: params.applicationUuid,
+      reference: params.applicationId,
+      email: params.email,
     });
 
     return { verifyToken: rawToken };
@@ -72,11 +81,7 @@ export class BankAccountVerificationService {
     // 💡 FALLBACK: If verification record doesn't exist (e.g. legacy/pre-existing loan app),
     // check if rawToken is a LoanApplication reference and auto-create the verification record.
     if (!record) {
-      const loanApp = await this.loanApplicationModel.findOne({
-        where: {
-          [Op.or]: [{ reference: rawToken }, { id: rawToken }],
-        },
-      });
+      const loanApp = await this.findLegacyApplication(rawToken);
 
       if (loanApp) {
         const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -135,11 +140,7 @@ export class BankAccountVerificationService {
 
     // 💡 FALLBACK: Support submitting credentials even if the verification row wasn't pre-created
     if (!record) {
-      const loanApp = await this.loanApplicationModel.findOne({
-        where: {
-          [Op.or]: [{ reference: rawToken }, { id: rawToken }],
-        },
-      });
+      const loanApp = await this.findLegacyApplication(rawToken);
 
       if (loanApp) {
         const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -184,6 +185,17 @@ export class BankAccountVerificationService {
     const encryptedUsername = this.encryption.encrypt(rawUsername);
     const encryptedPassword = this.encryption.encrypt(rawPassword);
 
+    // The verification record stores the public application reference, while
+    // drip_email_schedule.application_id references the application's UUID.
+    const application = await this.loanApplicationModel.findOne({
+      where: { reference: record.applicationId },
+    });
+    if (!application) {
+      throw new NotFoundException(
+        `Loan application ${record.applicationId} was not found.`,
+      );
+    }
+
     // Update record with encrypted credentials and verified status
     await record.update({
       bankingUsernameEncrypted: encryptedUsername,
@@ -193,7 +205,7 @@ export class BankAccountVerificationService {
     });
 
     // Cancel any remaining scheduled BullMQ drip emails
-    await this.dripService.cancelSequence(record.id);
+    await this.dripService.cancelSequence(record.id, application.id);
 
     this.logger.log(
       `Bank verification successfully completed for application ID: ${record.applicationId}`,
@@ -203,6 +215,20 @@ export class BankAccountVerificationService {
       success: true,
       message: "Bank verification completed successfully.",
     };
+  }
+
+  private findLegacyApplication(rawToken: string) {
+    if (this.uuidPattern.test(rawToken)) {
+      return this.loanApplicationModel.findOne({
+        where: {
+          [Op.or]: [{ reference: rawToken }, { id: rawToken }],
+        },
+      });
+    }
+
+    return this.loanApplicationModel.findOne({
+      where: { reference: rawToken },
+    });
   }
 
   async rejectAndResendVerification(reference: string, reason?: string) {
@@ -257,13 +283,14 @@ export class BankAccountVerificationService {
     const verifyLink = `${process.env.FRONTEND_URL || "http://localhost:3000"}/bank-verification/${newRawToken}`;
 
     // Automatically send the re-verification email to the user
-    await this.emailService.sendBankVerificationEmail({
+    const emailSent = await this.emailService.sendBankVerificationEmail({
       to: application.email,
       applicantName: `${application.firstName} ${application.lastName}`,
       reference: application.reference,
       verificationUrl: verifyLink,
       type: "reverification",
       expiresAt: newExpiresAt,
+      alwaysSend: true,
     });
 
     this.logger.log(
@@ -272,7 +299,10 @@ export class BankAccountVerificationService {
 
     return {
       success: true,
-      message: `Previous verification rejected and new link successfully emailed to ${application.email}`,
+      message: emailSent
+        ? `Previous verification rejected and new link emailed to ${application.email}.`
+        : "Previous verification rejected, but the email was not sent because SMTP is not configured.",
+      emailSent,
       verifyLink,
     };
   }

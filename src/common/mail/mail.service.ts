@@ -1,7 +1,9 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { InjectModel } from "@nestjs/sequelize";
 import * as nodemailer from "nodemailer";
 import type { Transporter } from "nodemailer";
+import { EmailLog } from "./email-log.model";
 
 interface BankVerificationEmailParams {
   to: string;
@@ -10,6 +12,7 @@ interface BankVerificationEmailParams {
   verificationUrl: string;
   type: "initial" | "reverification";
   expiresAt: Date;
+  alwaysSend?: boolean;
 }
 
 interface ApplicationSubmittedEmailParams {
@@ -25,6 +28,7 @@ interface DripEmailParams {
   applicantName: string;
   reference: string;
   subject: string;
+  step: number;
   previewText: string;
   label: string;
   tone: string;
@@ -34,10 +38,20 @@ interface DripEmailParams {
   ctaHref: string;
 }
 
+interface EmailDelivery {
+  emailType: string;
+  to: string;
+  reference: string;
+  subject: string;
+  text: string;
+  html: string;
+  alwaysSend?: boolean;
+}
+
 /**
  * SMTP mail delivery. Configured from the SMTP_* / FROM_* env vars; if those
- * are absent the service stays in "disabled" mode and send() becomes a no-op so
- * local environments without mail credentials still boot.
+ * are absent the service stays in "disabled" mode and records delivery attempts
+ * as skipped so local environments without mail credentials still boot.
  */
 @Injectable()
 export class MailService implements OnModuleInit {
@@ -46,7 +60,11 @@ export class MailService implements OnModuleInit {
   private fromName = "";
   private fromEmail = "";
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    @InjectModel(EmailLog)
+    private readonly emailLogs: typeof EmailLog,
+  ) {}
 
   onModuleInit() {
     const host = this.config.get<string>("SMTP_HOST");
@@ -110,20 +128,15 @@ export class MailService implements OnModuleInit {
       expires,
     });
 
-    if (!this.transporter) {
-      this.logger.warn(
-        `SMTP disabled; would have emailed ${to} with link ${verificationUrl}`,
-      );
-      return false;
-    }
-
-    const from = this.fromName
-      ? `"${this.fromName}" <${this.fromEmail}>`
-      : this.fromEmail;
-
-    await this.transporter.sendMail({ from, to, subject, text, html });
-    this.logger.log(`Bank verification email sent to ${to} (${reference}).`);
-    return true;
+    return this.deliverEmail({
+      emailType: `bank_verification_${type}`,
+      to,
+      reference,
+      subject,
+      text,
+      html,
+      alwaysSend: type === "reverification" && params.alwaysSend,
+    });
   }
 
   //   async sendApplicationSubmittedEmail(
@@ -250,7 +263,7 @@ export class MailService implements OnModuleInit {
                             </a>
                           </td>
                         </tr>
-                      ></table>`
+                      </table>`
                     : ""
                 }
 
@@ -271,22 +284,14 @@ export class MailService implements OnModuleInit {
   </body>
 </html>`;
 
-    if (!this.transporter) {
-      this.logger.warn(
-        `SMTP disabled; application confirmation email was not sent to ${to} (${reference}).`,
-      );
-      return false;
-    }
-
-    const from = this.fromName
-      ? `"${this.fromName}" <${this.fromEmail}>`
-      : this.fromEmail;
-
-    await this.transporter.sendMail({ from, to, subject, text, html });
-    this.logger.log(
-      `Application confirmation email sent with verification link to ${to} (${reference}).`,
-    );
-    return true;
+    return this.deliverEmail({
+      emailType: "application_submitted",
+      to,
+      reference,
+      subject,
+      text,
+      html,
+    });
   }
 
   /** Render + send one bank-verification drip step. */
@@ -296,6 +301,7 @@ export class MailService implements OnModuleInit {
       applicantName,
       reference,
       subject,
+      step,
       previewText,
       label,
       tone,
@@ -364,9 +370,68 @@ export class MailService implements OnModuleInit {
   </body>
 </html>`;
 
+    return this.deliverEmail({
+      emailType: `bank_verification_drip_step_${step}`,
+      to,
+      reference,
+      subject,
+      text,
+      html,
+    });
+  }
+
+  private async deliverEmail({
+    emailType,
+    to,
+    reference,
+    subject,
+    text,
+    html,
+    alwaysSend = false,
+  }: EmailDelivery): Promise<boolean> {
+    const existingLog = alwaysSend
+      ? null
+      : await this.emailLogs.findOne({
+          where: { emailType, applicationReference: reference },
+        });
+    if (!alwaysSend && existingLog?.status === "sent") {
+      this.logger.log(
+        `Skipping duplicate email "${subject}" for ${reference}; it is already recorded as sent.`,
+      );
+      return true;
+    }
+
+    const log = alwaysSend
+      ? await this.emailLogs.create({
+          emailType,
+          recipient: to,
+          applicationReference: reference,
+          subject,
+          status: "pending",
+        })
+      : existingLog ??
+        (await this.emailLogs.create({
+            emailType,
+            recipient: to,
+            applicationReference: reference,
+            subject,
+            status: "pending",
+        }));
+    await log.update({
+      recipient: to,
+      subject,
+      status: "pending",
+      sentAt: null,
+      errorMessage: null,
+    });
+
     if (!this.transporter) {
+      await log.update({
+        status: "skipped",
+        errorMessage: "SMTP is not configured.",
+      });
       this.logger.warn(
-        `SMTP disabled; drip email "${subject}" was not sent to ${to} (${reference}).`,
+        `SMTP disabled; email "${subject}" was not sent to ${to} (${reference}).`,
       );
       return false;
     }
@@ -375,8 +440,24 @@ export class MailService implements OnModuleInit {
       ? `"${this.fromName}" <${this.fromEmail}>`
       : this.fromEmail;
 
-    await this.transporter.sendMail({ from, to, subject, text, html });
-    this.logger.log(`Drip email "${subject}" sent to ${to} (${reference}).`);
+    try {
+      await this.transporter.sendMail({ from, to, subject, text, html });
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown email delivery error";
+      await log.update({ status: "failed", errorMessage });
+      this.logger.error(
+        `Email "${subject}" failed for ${to} (${reference}): ${errorMessage}`,
+      );
+      throw error;
+    }
+
+    await log.update({
+      status: "sent",
+      sentAt: new Date(),
+      errorMessage: null,
+    });
+    this.logger.log(`Email "${subject}" sent to ${to} (${reference}).`);
     return true;
   }
 

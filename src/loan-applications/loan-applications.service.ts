@@ -152,6 +152,7 @@ export class LoanApplicationsService {
     const { verifyToken } =
       await this.bankVerificationService.createVerification({
         applicationId: application.reference,
+        applicationUuid: application.id,
         fullName: `${application.firstName} ${application.lastName}`,
         email: application.email,
         phoneNumber: application.phone,
