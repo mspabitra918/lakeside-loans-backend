@@ -115,6 +115,10 @@ export class LoanApplicationsController {
     application: Awaited<ReturnType<typeof this.service.create>>,
     dto: CreateLoanApplicationDto,
   ): Promise<void> {
+    this.logger.log(
+      `finishSubmission START for ${application.reference} (${application.email})`,
+    );
+
     // Provision the verification record + drip sequence. Isolated in its own
     // try/catch so a Redis/queue failure here can NEVER prevent the
     // confirmation email below from being sent. (A single shared try/catch was
@@ -133,6 +137,9 @@ export class LoanApplicationsController {
     // Always attempt the confirmation email, independently of provisioning.
     // If verifyLink is empty (provisioning failed) the email still goes out;
     // the button is simply omitted (the template already guards on verifyLink).
+    this.logger.log(
+      `finishSubmission: sending confirmation email for ${application.reference} (verifyLink=${verifyLink ? "yes" : "none"})`,
+    );
     try {
       await this.mail.sendApplicationSubmittedEmail({
         to: application.email,
