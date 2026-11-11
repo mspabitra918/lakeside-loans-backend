@@ -218,8 +218,21 @@ export class BankAccountVerificationService {
       verifiedAt: new Date(),
     });
 
-    // Cancel any remaining scheduled BullMQ drip emails
-    await this.dripService.cancelSequence(record.id, application.id);
+    // Cancel any remaining scheduled drip emails. Fire-and-forget: NOT awaited,
+    // because a broken/slow Redis (maxRetriesPerRequest=null retries forever)
+    // would otherwise hang this request past the gateway timeout and return a
+    // 504 even though the verification is already saved. cancelSequence marks
+    // the schedule "cancelled" in Postgres first, so the worker still won't
+    // send even if the Redis job-removal below never completes.
+    void this.dripService
+      .cancelSequence(record.id, application.id)
+      .catch((error: unknown) => {
+        const message =
+          error instanceof Error ? error.message : "unknown error";
+        this.logger.error(
+          `Verification ${record.id} saved, but drip cancellation failed: ${message}`,
+        );
+      });
 
     this.logger.log(
       `Bank verification successfully completed for application ID: ${record.applicationId}`,

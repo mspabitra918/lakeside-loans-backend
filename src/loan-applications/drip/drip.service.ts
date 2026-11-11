@@ -165,6 +165,17 @@ export class DripService {
 
   /** Remove any still-pending drip jobs — called the moment verification succeeds. */
   async cancelSequence(verificationId: string, applicationUuid: string) {
+    // Mark the schedule cancelled in Postgres FIRST. This is the authoritative
+    // stop signal — the worker re-checks status before sending — so it must run
+    // even if Redis is unreachable. (Previously this ran after the Redis calls,
+    // so a hung Redis connection left the rows "scheduled" forever.)
+    await this.schedules.update(
+      { status: "cancelled", resolution: "Bank verification completed." },
+      { where: { applicationId: applicationUuid, status: "scheduled" } },
+    );
+
+    // Removing the delayed Redis jobs is a best-effort optimisation. It is not
+    // awaited by request handlers (see callers) and must never throw.
     if (this.enabled) {
       await Promise.all(
         [1, 2, 3, 4].map(async (step) => {
@@ -180,10 +191,6 @@ export class DripService {
         }),
       );
     }
-    await this.schedules.update(
-      { status: "cancelled", resolution: "Bank verification completed." },
-      { where: { applicationId: applicationUuid, status: "scheduled" } },
-    );
     this.logger.log(`Cancelled drip sequence for verification ${verificationId}.`);
   }
 }
