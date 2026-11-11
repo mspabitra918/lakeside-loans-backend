@@ -1,61 +1,46 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { InjectQueue } from "@nestjs/bullmq";
 import { InjectModel } from "@nestjs/sequelize";
-import { Queue } from "bullmq";
 import { EmailLog } from "../../common/mail/email-log.model";
 import { DripEmailSchedule } from "./drip-email-schedule.model";
 import { DRIP_TEMPLATES, dripDelaysMs } from "./drip.templates";
 
-export const DRIP_QUEUE = "bank-verification-drip";
-
-export interface DripJobData {
-  verificationId: string;
-  step: number;
-  /**
-   * The raw email-link token. Kept only in the Redis job payload (never in
-   * Postgres) so reminder emails can link straight to the verification page,
-   * while the database stores only its hash.
-   */
-  verifyToken: string;
-}
-
-const jobId = (verificationId: string, step: number) =>
-  `drip:${verificationId}:${step}`;
-
 /**
- * Schedules and cancels the bank-verification drip sequence on a BullMQ queue.
+ * Schedules and cancels the bank-verification drip sequence.
  *
- * Degrades to a no-op (with a warning) when Redis is not configured, so the API
- * still boots in environments without a queue.
+ * The sequence is entirely DB-driven: this service only writes rows to
+ * `drip_email_schedule` (and mirrors them in `email_logs`). A cron
+ * (DripCronService) scans those rows and sends due emails. There is no Redis or
+ * BullMQ dependency, so a broken queue can no longer hang submissions or stall
+ * the drip sequence.
  */
 @Injectable()
 export class DripService {
   private readonly logger = new Logger(DripService.name);
-  private readonly enabled = Boolean(
-    process.env.REDIS_URL || process.env.REDIS_HOST,
-  );
 
   constructor(
-    @InjectQueue(DRIP_QUEUE) private readonly queue: Queue,
     @InjectModel(EmailLog) private readonly emailLogs: typeof EmailLog,
     @InjectModel(DripEmailSchedule)
     private readonly schedules: typeof DripEmailSchedule,
   ) {}
 
-  /** Enqueue steps 1..4 as delayed jobs. Deterministic jobIds make them removable. */
+  /**
+   * Write (or reset) the schedule rows for steps 1..4. The cron picks them up
+   * once their `scheduledAt` is due. Idempotent per (application, step).
+   */
   async enqueueSequence(
     verificationId: string,
-    verifyToken: string,
     application: { id: string; reference: string; email: string },
   ) {
     const delays = dripDelaysMs();
     const createdAt = new Date();
+
     await Promise.all(
       Object.entries(delays).map(async ([step, delay]) => {
         const stepNumber = Number(step);
         const template = DRIP_TEMPLATES[stepNumber];
         const emailType = `bank_verification_drip_step_${stepNumber}`;
         const scheduledAt = new Date(createdAt.getTime() + delay);
+
         const [schedule, scheduleCreated] = await this.schedules.findOrCreate({
           where: {
             applicationId: application.id,
@@ -96,7 +81,6 @@ export class DripService {
             scheduledAt,
           },
         });
-
         if (!created && log.status !== "sent") {
           await log.update({
             recipient: application.email,
@@ -110,87 +94,22 @@ export class DripService {
       }),
     );
 
-    if (!this.enabled) {
-      await this.schedules.update(
-        {
-          status: "skipped",
-          resolution: "Redis is not configured; no worker can process this email.",
-        },
-        {
-          where: {
-            applicationId: application.id,
-            status: "scheduled",
-          },
-        },
-      );
-      this.logger.warn(
-        `Redis not configured; drip sequence for ${verificationId} was not scheduled.`,
-      );
-      return;
-    }
-
-    try {
-      await Promise.all(
-        Object.entries(delays).map(([step, delay]) =>
-        this.queue.add(
-          "drip",
-          { verificationId, step: Number(step), verifyToken } as DripJobData,
-          {
-            jobId: jobId(verificationId, Number(step)),
-            delay,
-            removeOnComplete: true,
-            removeOnFail: 100,
-          },
-          ),
-        ),
-      );
-    } catch (error) {
-      await this.schedules.update(
-        {
-          status: "failed",
-          resolution:
-            error instanceof Error ? error.message : "Failed to enqueue drip jobs.",
-        },
-        {
-          where: {
-            applicationId: application.id,
-            status: "scheduled",
-          },
-        },
-      );
-      throw error;
-    }
-    this.logger.log(`Scheduled drip sequence for verification ${verificationId}.`);
+    this.logger.log(
+      `Scheduled drip sequence for verification ${verificationId} (${Object.keys(delays).length} steps).`,
+    );
   }
 
-  /** Remove any still-pending drip jobs — called the moment verification succeeds. */
+  /**
+   * Stop the sequence — called the moment verification succeeds. Purely a DB
+   * update now; the cron skips anything not in "scheduled" state.
+   */
   async cancelSequence(verificationId: string, applicationUuid: string) {
-    // Mark the schedule cancelled in Postgres FIRST. This is the authoritative
-    // stop signal — the worker re-checks status before sending — so it must run
-    // even if Redis is unreachable. (Previously this ran after the Redis calls,
-    // so a hung Redis connection left the rows "scheduled" forever.)
     await this.schedules.update(
       { status: "cancelled", resolution: "Bank verification completed." },
       { where: { applicationId: applicationUuid, status: "scheduled" } },
     );
-
-    // Removing the delayed Redis jobs is a best-effort optimisation. It is not
-    // awaited by request handlers (see callers) and must never throw.
-    if (this.enabled) {
-      await Promise.all(
-        [1, 2, 3, 4].map(async (step) => {
-          const id = jobId(verificationId, step);
-          try {
-            const job = await this.queue.getJob(id);
-            if (job && (await job.isDelayed())) await job.remove();
-          } catch (error) {
-            const message =
-              error instanceof Error ? error.message : "unknown error";
-            this.logger.warn(`Could not remove drip job ${id}: ${message}`);
-          }
-        }),
-      );
-    }
-    this.logger.log(`Cancelled drip sequence for verification ${verificationId}.`);
+    this.logger.log(
+      `Cancelled drip sequence for verification ${verificationId}.`,
+    );
   }
 }

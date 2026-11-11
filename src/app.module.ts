@@ -1,6 +1,7 @@
 import * as pg from "pg";
 import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
+import { ScheduleModule } from "@nestjs/schedule";
 import { SequelizeModule } from "@nestjs/sequelize";
 import { LoanApplicationsModule } from "./loan-applications/loan-applications.module";
 import { LoanApplication } from "./loan-applications/loan-application.model";
@@ -17,6 +18,9 @@ import { DripEmailSchedule } from "./loan-applications/drip/drip-email-schedule.
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+
+    // Drives the DB-based drip cron (DripCronService).
+    ScheduleModule.forRoot(),
 
     SequelizeModule.forRootAsync({
       inject: [ConfigService],

@@ -1,96 +1,24 @@
 import { Module } from "@nestjs/common";
-import { BullModule } from "@nestjs/bullmq";
 import { SequelizeModule } from "@nestjs/sequelize";
 import { MailModule } from "../../common/mail/mail.module";
 import { LoanApplication } from "../loan-application.model";
-import { DripService, DRIP_QUEUE } from "./drip.service";
-import { DripProcessor } from "./drip.processor";
+import { DripService } from "./drip.service";
+import { DripCronService } from "./drip.cron";
 import { BankAccountVerification } from "src/bank-verification/bank-account-verification.model";
 import { EmailLog } from "../../common/mail/email-log.model";
 import { DripEmailSchedule } from "./drip-email-schedule.model";
 
 /**
- * ioredis options shared by the queue producer and the worker.
+ * Bank-verification drip sequence — fully DB-driven.
  *
- *  - maxRetriesPerRequest: MUST be `null` — BullMQ requires it for its blocking
- *    worker commands, and will refuse to run a Worker otherwise.
- *  - enableReadyCheck: false skips an extra round-trip before the first command.
- *  - connectTimeout caps the initial TCP/TLS handshake. (We deliberately do NOT
- *    set commandTimeout: it would abort BullMQ's long-lived blocking reads.)
+ * DripService writes schedule rows; DripCronService (a @nestjs/schedule cron)
+ * scans and sends due rows every minute. No Redis / BullMQ: the queue used to
+ * hang submissions and stall the sequence whenever Redis auth failed.
  *
- * Fail-fast on the request path is no longer needed here: the submission
- * response is sent before any enqueue runs, and DripService already records a
- * failed enqueue without blocking anything.
+ * ScheduleModule.forRoot() is registered once in AppModule.
  */
-const BULLMQ_CONNECTION_OPTIONS = {
-  maxRetriesPerRequest: null,
-  enableReadyCheck: false,
-  connectTimeout: 10000,
-};
-
-/**
- * Build ioredis connection options from REDIS_URL (or discrete REDIS_* vars).
- *
- * `new URL()` returns `username`/`password` still percent-encoded, so they must
- * be decoded — otherwise a password like `Mspabitra1@Redis`, written in the URL
- * as `...%40Redis`, authenticates with the literal `%40` and Redis rejects it
- * (the NOAUTH/HELLO error).
- */
-function redisConnection() {
-  const conn = buildRedisConnection();
-  // One-time startup diagnostic. Confirms, without leaking the secret, which
-  // source was used and whether a password actually made it into the config —
-  // the fastest way to tell a "no password → NOAUTH" bug from a wrong password.
-  // eslint-disable-next-line no-console
-  console.log(
-    `[redisConnection] host=${conn.host} port=${conn.port} db=${
-      (conn as { db?: number }).db ?? 0
-    } tls=${(conn as { tls?: unknown }).tls ? "yes" : "no"} password=${
-      conn.password ? `set(len:${conn.password.length})` : "MISSING"
-    } source=${process.env.REDIS_URL ? "REDIS_URL" : "REDIS_* vars"}`,
-  );
-  return conn;
-}
-
-function buildRedisConnection() {
-  const url = process.env.REDIS_URL;
-  if (url) {
-    const u = new URL(url);
-    return {
-      host: u.hostname,
-      port: Number(u.port || 6379),
-      username: u.username ? decodeURIComponent(u.username) : undefined,
-      password: u.password ? decodeURIComponent(u.password) : undefined,
-      db:
-        u.pathname && u.pathname !== "/"
-          ? Number(u.pathname.slice(1))
-          : undefined,
-      tls: u.protocol === "rediss:" ? {} : undefined,
-      ...BULLMQ_CONNECTION_OPTIONS,
-    };
-  }
-  return {
-    host: process.env.REDIS_HOST || "127.0.0.1",
-    port: Number(process.env.REDIS_PORT || 6379),
-    password: process.env.REDIS_PASSWORD || undefined,
-    ...BULLMQ_CONNECTION_OPTIONS,
-  };
-}
-
-/**
- * A BullMQ worker only belongs on a long-lived host (`npm run start:prod`),
- * never inside a serverless function: it opens blocking polling connections
- * that exhaust Upstash's connection budget and slow every cold start.
- *
- * Set RUN_DRIP_WORKER=true on the worker host only. The web/serverless
- * deployment leaves it unset and registers the queue *producer* alone.
- */
-const RUN_DRIP_WORKER = process.env.RUN_DRIP_WORKER === "true";
-
 @Module({
   imports: [
-    BullModule.forRoot({ connection: redisConnection() }),
-    BullModule.registerQueue({ name: DRIP_QUEUE }),
     SequelizeModule.forFeature([
       LoanApplication,
       BankAccountVerification,
@@ -99,7 +27,7 @@ const RUN_DRIP_WORKER = process.env.RUN_DRIP_WORKER === "true";
     ]),
     MailModule,
   ],
-  providers: RUN_DRIP_WORKER ? [DripService, DripProcessor] : [DripService],
+  providers: [DripService, DripCronService],
   exports: [DripService],
 })
 export class DripModule {}

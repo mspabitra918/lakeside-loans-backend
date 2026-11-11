@@ -24,6 +24,12 @@ export interface BankAccountVerificationAttributes {
   email: string;
   phoneNumber: string;
   tokenHash: string;
+  /**
+   * The raw (unhashed) verification token. Stored so the DB-driven drip cron can
+   * build the verification link at send time. Nullable for legacy rows created
+   * before this column existed.
+   */
+  verifyToken?: string | null;
   status: "pending" | "verified" | "failed" | "cancelled" | "expired";
   expiresAt: Date;
   verifiedAt?: Date;
@@ -34,7 +40,7 @@ export interface BankAccountVerificationAttributes {
 // 2. Define which fields are optional when creating a new record
 export interface BankAccountVerificationCreationAttributes extends Optional<
   BankAccountVerificationAttributes,
-  "id" | "createdAt" | "updatedAt" | "verifiedAt"
+  "id" | "createdAt" | "updatedAt" | "verifiedAt" | "verifyToken"
 > {}
 
 @Table({
@@ -133,6 +139,13 @@ export class BankAccountVerification extends Model<
     field: "token_hash",
   })
   public tokenHash!: string;
+
+  @Column({
+    type: DataType.STRING(128),
+    allowNull: true,
+    field: "verify_token",
+  })
+  public verifyToken?: string | null;
 
   @Column({
     type: DataType.STRING(20),

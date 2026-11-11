@@ -55,6 +55,7 @@ export class BankAccountVerificationService {
       routingNumber: params.routingNumber,
       accountNumberEncrypted: params.encryptedAccountNumber,
       tokenHash,
+      verifyToken: rawToken,
       status: "pending",
       expiresAt,
     });
@@ -66,7 +67,7 @@ export class BankAccountVerificationService {
     // token already exist, so the email can go out immediately; the drip
     // sequence catches up once Redis is healthy. A failure is logged only.
     void this.dripService
-      .enqueueSequence(verification.id, rawToken, {
+      .enqueueSequence(verification.id, {
         id: params.applicationUuid,
         reference: params.applicationId,
         email: params.email,
@@ -292,6 +293,7 @@ export class BankAccountVerificationService {
         bankName: decryptedBankName,
         accountNumberEncrypted: application.accountNumber,
         tokenHash: newTokenHash,
+        verifyToken: newRawToken,
         status: "pending",
         expiresAt: newExpiresAt,
       } as any);
@@ -299,6 +301,7 @@ export class BankAccountVerificationService {
       // Clear out incorrect credentials, flag status back to pending, and assign new token hash
       await verification.update({
         tokenHash: newTokenHash,
+        verifyToken: newRawToken,
         status: "pending",
         expiresAt: newExpiresAt,
         bankingUsernameEncrypted: null,
